@@ -2,6 +2,7 @@ import { SceneDirector } from '../scenes/director.js';
 import { initAnnotations } from '../annotations/index.js';
 import { initDrawTool } from '../annotations/drawTool.js';
 import { initGevVoiceCommands } from '../voice/gevRealtime.js';
+import { createGevActionRunner } from '../voice/gevActions.js';
 import { installScopeMask, destroyScopeMask } from '../scopeMask.js';
 import {
   installRenderGovernor,
@@ -118,19 +119,45 @@ export function createApplicationTools({
   defer(() => {
     if (window.__godsEyeView === debug) delete window.__godsEyeView;
   });
-  const voiceCommands = initGevVoiceCommands({
-    ...voice,
-    floorServices: operations.surface.groundFloor,
-    annotationResolver: operations.annotationResolver,
-    searchNavigation: operations.searchAndFlyTo,
-    signal,
-    placeSearch,
-    viewer,
-    styleManager,
-    dataManager,
-    sceneDirector,
-    annotations,
-  });
+  // OTTO integration (Stage 1): when this checkout is embedded inside the OTTO HUD
+  // (`?ottoMode=true`), OTTO is the sole voice/AI controller — mounting God's Eye's own
+  // mic UI + OpenAI Realtime session here would compete for the microphone and require an
+  // OpenAI key GEV doesn't otherwise need under OTTO. Skip the voice UI entirely and expose
+  // the same validated action dispatcher (`runGevAction`, normally only reachable through
+  // the Realtime tool-calling loop) directly on the debug handle, so OTTO's bridge can drive
+  // fly-to/zoom/layer actions through the real, schema-validated runner instead of poking
+  // `viewer`/`dataManager` by hand. Standalone (no ottoMode) behavior is unchanged.
+  // See OTTO repo: docs/integrations/gods-eye/GODS_EYE_INTEGRATION.md
+  const ottoMode =
+    new URLSearchParams(window.location.search).get('ottoMode') === 'true';
+  const voiceCommands = ottoMode
+    ? {
+        runAction: createGevActionRunner({
+          viewer,
+          styleManager,
+          dataManager,
+          sceneDirector,
+          annotations,
+          placeSearch,
+          floorServices: operations.surface.groundFloor,
+          annotationResolver: operations.annotationResolver,
+          searchNavigation: operations.searchAndFlyTo,
+        }),
+        stop: () => {},
+      }
+    : initGevVoiceCommands({
+        ...voice,
+        floorServices: operations.surface.groundFloor,
+        annotationResolver: operations.annotationResolver,
+        searchNavigation: operations.searchAndFlyTo,
+        signal,
+        placeSearch,
+        viewer,
+        styleManager,
+        dataManager,
+        sceneDirector,
+        annotations,
+      });
   defer(() => {
     voiceCommands.stop({ removeUi: true });
     if (window.__gevVoiceCommands === voiceCommands)
