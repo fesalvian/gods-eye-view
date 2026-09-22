@@ -2,7 +2,13 @@
  * Hologram Style — Cyan/Blue Wireframe Holographic Projection
  * Sobel edge-detected wireframe glow over a dim cyan base, fine screen-space
  * grid, a slow vertical sweep band, subtle CRT-style scanlines and light
- * flicker — the "Iron Man workshop projection" look.
+ * flicker — the "Iron Man workshop projection" look. Reads the scene depth
+ * buffer (czm_readDepth, a Cesium builtin — automatically bound whenever a
+ * PostProcessStage shader declares `uniform sampler2D depthTexture`, no
+ * extra JS-side wiring needed) to force empty space to pure black instead of
+ * letting the grid/sweep/edge treatment light up the starfield — otherwise
+ * the effect reads as noisy clutter behind the globe instead of a clean
+ * hologram (fixed after real-usage feedback).
  *
  * Exposed uniforms:
  *   gridScale (8-128)  — grid cell size in screen pixels (smaller = denser grid)
@@ -21,6 +27,7 @@ export const hologramShader = {
   fragmentShader: /* glsl */ `
     uniform sampler2D colorTexture;
     uniform vec2 colorTextureDimensions;
+    uniform sampler2D depthTexture;
     uniform float intensity;
     uniform float time;
     uniform float gridScale;
@@ -35,6 +42,15 @@ export const hologramShader = {
       vec2 uv = v_textureCoordinates;
       vec2 texel = 1.0 / colorTextureDimensions;
       vec4 original = texture(colorTexture, uv);
+
+      // ── Empty space (nothing rendered — depth at the far plane): force
+      //    pure black, skip the wireframe/grid/sweep treatment entirely so
+      //    stars/atmosphere haze never turn into hologram clutter. ──
+      float sceneDepth = czm_readDepth(depthTexture, uv);
+      if (sceneDepth >= 0.9999) {
+        out_FragColor = vec4(mix(original.rgb, vec3(0.0), intensity), original.a);
+        return;
+      }
 
       // ── Sobel edge detection — drives the wireframe glow ──────
       float tl = luma(texture(colorTexture, uv + texel * vec2(-1.0, -1.0)).rgb);
