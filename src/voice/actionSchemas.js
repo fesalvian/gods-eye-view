@@ -257,6 +257,7 @@ const schemas = [
             'anime',
             'noir',
             'snow',
+            'hologram',
           ],
         },
       },
